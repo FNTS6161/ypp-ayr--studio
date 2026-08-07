@@ -274,7 +274,8 @@ def generate_script(api_key: str, topic: str, lang_name: str, fmt: str) -> str:
     import google.generativeai as genai
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash-latest")
+    model = genai.GenerativeModel('gemini-2.0-flash')
+
 
     is_short = "Dikey" in fmt
     length_hint = "45-60 saniyede seslendirilecek, çok yüksek retention'lı kısa bir Shorts" if is_short else \
