@@ -21,6 +21,7 @@ import traceback
 
 import numpy as np
 import streamlit as st
+from groq import Groq
 
 # ------------------------------------------------------------------------------------
 # PAGE CONFIG (must be first Streamlit call)
@@ -192,15 +193,15 @@ st.markdown(
 )
 
 # ------------------------------------------------------------------------------------
-# API KEY (Gemini) — required, kept in session only
+# API KEY (Groq) — required, kept in session only
 # ------------------------------------------------------------------------------------
-with st.expander("🔑 API Anahtarı (Gemini) — zorunlu", expanded=not bool(st.secrets.get("GEMINI_API_KEY", ""))):
-    default_key = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else ""
-    gemini_api_key = st.text_input(
-        "Google Gemini API Key",
+with st.expander("🔑 API Anahtarı (Groq) — zorunlu", expanded=not bool(st.secrets.get("GROQ_API_KEY", ""))):
+    default_key = st.secrets.get("GROQ_API_KEY", "") if hasattr(st, "secrets") else ""
+    groq_api_key = st.text_input(
+        "Groq API Key",
         value=default_key,
         type="password",
-        help="https://aistudio.google.com/app/apikey adresinden ücretsiz alabilirsiniz.",
+        help="https://console.groq.com/keys adresinden ücretsiz alabilirsiniz.",
     )
 
 # ------------------------------------------------------------------------------------
@@ -268,14 +269,10 @@ def render_logs():
 
 
 # ------------------------------------------------------------------------------------
-# BACKEND: SCRIPT GENERATION (Gemini)
+# BACKEND: SCRIPT GENERATION (Groq - Llama 3)
 # ------------------------------------------------------------------------------------
 def generate_script(api_key: str, topic: str, lang_name: str, fmt: str) -> str:
-    import google.generativeai as genai
-
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash')
-
+    client = Groq(api_key=api_key)
 
     is_short = "Dikey" in fmt
     length_hint = "45-60 saniyede seslendirilecek, çok yüksek retention'lı kısa bir Shorts" if is_short else \
@@ -293,8 +290,11 @@ Kurallar:
 - Doğal, konuşma diline uygun, akıcı cümleler kullan.
 - Video sonunda doğal bir şekilde kanalı takip etmeye teşvik eden bir kapanış cümlesi ekle.
 """
-    response = model.generate_content(prompt)
-    script_text = (response.text or "").strip()
+    response = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model="llama-3.3-70b-versatile",
+    )
+    script_text = (response.choices[0].message.content or "").strip()
     script_text = re.sub(r"[*_#`]", "", script_text)
     return script_text
 
@@ -569,8 +569,8 @@ def run_pipeline():
     progress = progress_placeholder.progress(0, text="Başlatılıyor…")
 
     try:
-        if not gemini_api_key:
-            log("❌ HATA: Gemini API anahtarı girilmedi.")
+        if not groq_api_key:
+            log("❌ HATA: Groq API anahtarı girilmedi.")
             render_logs()
             progress.progress(0, text="Durduruldu — API anahtarı eksik")
             return
@@ -584,10 +584,10 @@ def run_pipeline():
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # ---- STEP 1: Script generation ----
-            log(f"▶ Adım 1/4: Senaryo üretiliyor (Gemini-1.5-flash) — dil: {lang_info['code']}")
+            log(f"▶ Adım 1/4: Senaryo üretiliyor (Groq - Llama 3.3) — dil: {lang_info['code']}")
             render_logs()
             progress.progress(10, text="Senaryo yazılıyor…")
-            script_text = generate_script(gemini_api_key, topic, target_language, video_format)
+            script_text = generate_script(groq_api_key, topic, target_language, video_format)
             log(f"✅ Senaryo hazır ({len(script_text.split())} kelime).")
             render_logs()
             progress.progress(30, text="Senaryo tamamlandı")
