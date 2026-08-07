@@ -17,7 +17,11 @@ import time
 import uuid
 import asyncio
 import tempfile
-import traceback
+import traceback 
+
+import PIL.Image
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.Resampling.LANCZOS
 
 import numpy as np
 import streamlit as st
