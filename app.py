@@ -1,7 +1,7 @@
 """
 YPP AUTO-STUDIO v2.0
 High-CPM Video Generator - Streamlit Web App
-ImageMagick-Free Edition (PIL text rendering for cloud stability)
+ImageMagick-Free & Robust Subtitle Fallback Edition
 """
 
 import os
@@ -191,14 +191,14 @@ with st.expander("🔑 API Anahtarı (Groq) — zorunlu", expanded=not bool(st.s
 
 st.markdown('<div class="ypp-section"><h3>📝 1. İçerik & Hedef Bölge (CPM) Ayarları</h3>', unsafe_allow_html=True)
 topic = st.text_input("Video Konusu / Başlık", placeholder="Örn: 5 Şaşırtıcı Uzay Gerçeği")
-target_language = st.selectbox("Hedef Dil / Bölge", list(LANGUAGES.keys()), index=2)
+target_language = st.selectbox("Hedef Dil / Bölge", list(LANGUAGES.keys()), index=0)
 video_format = st.radio("Video Formatı", ["Dikey Shorts (9:16)", "Yatay Long-Form (16:9)"], horizontal=True)
 bg_file = st.file_uploader("Arkaplan Görsel/Video (opsiyonel)", type=["mp4", "mov", "jpg", "jpeg", "png"])
 st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown('<div class="ypp-section"><h3>🎨 2. Altyazı, Efekt & Stil</h3>', unsafe_allow_html=True)
 subtitle_template = st.selectbox("Altyazı Şablonu", list(SUBTITLE_TEMPLATES.keys()))
-subtitle_position_tr = st.radio("Altyazı Konumu", list(SUB_POSITION_MAP.keys()), horizontal=True)
+subtitle_position_tr = st.radio("Altyazı Konumu", list(SUB_POSITION_MAP.keys()), index=1, horizontal=True)
 
 st.write("**Video Efektleri**")
 fx_flip = st.checkbox("Horizontal Flip (Aynalama - Telif Önleyici)", value=True)
@@ -268,7 +268,7 @@ def synthesize_speech(text: str, voice: str, out_path: str):
 
 
 # ------------------------------------------------------------------------------------
-# PIL TEXT RENDERER (ImageMagick Bağımsız)
+# PIL TEXT RENDERER
 # ------------------------------------------------------------------------------------
 def _create_pil_text_clip(text, font_size, color="white", bg_color=None, stroke_color=None, stroke_width=0):
     from moviepy.editor import ImageClip
@@ -289,7 +289,7 @@ def _create_pil_text_clip(text, font_size, color="white", bg_color=None, stroke_
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
 
-    pad_x, pad_y = 20, 12
+    pad_x, pad_y = 24, 14
     img_w = text_w + pad_x * 2
     img_h = text_h + pad_y * 2
 
@@ -297,7 +297,7 @@ def _create_pil_text_clip(text, font_size, color="white", bg_color=None, stroke_
     draw = ImageDraw.Draw(img)
 
     if bg_color:
-        draw.rounded_rectangle([0, 0, img_w, img_h], radius=10, fill=bg_color)
+        draw.rounded_rectangle([0, 0, img_w, img_h], radius=12, fill=bg_color)
 
     x, y = pad_x - bbox[0], pad_y - bbox[1]
 
@@ -359,9 +359,9 @@ def _apply_color_filter(clip, filter_type: str):
 
 def _build_word_subtitle_clips(word_boundaries, template: dict, position: str, size, use_emoji: bool):
     w, h = size
-    font_size = max(int(h * template["font_size_ratio"]), 26)
+    font_size = max(int(h * template["font_size_ratio"]), 28)
     clips = []
-    pos_y = {"top": h * 0.12, "center": h * 0.46, "bottom": h * 0.78}[position]
+    pos_y = {"top": h * 0.15, "center": h * 0.45, "bottom": h * 0.75}[position]
 
     phrase_size = 3
     for i in range(0, len(word_boundaries), phrase_size):
@@ -376,7 +376,7 @@ def _build_word_subtitle_clips(word_boundaries, template: dict, position: str, s
                     break
         start = group[0]["start"]
         end = group[-1]["start"] + group[-1]["duration"]
-        dur = max(end - start, 0.15)
+        dur = max(end - start, 0.2)
 
         txt_clip = _create_pil_text_clip(
             text=phrase,
@@ -407,9 +407,9 @@ def _build_cta_clip(cta_text: str, size, total_duration: float, position="bottom
         stroke_width=0,
     )
 
-    interval = 15.0
+    interval = 12.0
     fragments = []
-    t = 3.0
+    t = 2.0
     while t < total_duration:
         frag = cta.copy().set_start(t).set_duration(min(3.0, max(total_duration - t, 0))).set_position(("center", y))
         fragments.append(frag)
@@ -427,6 +427,16 @@ def compose_video(
     audio_clip = AudioFileClip(audio_path)
     duration = audio_clip.duration
     size = (1080, 1920) if "Dikey" in video_format else (1920, 1080)
+
+    # OTOMATİK YEDEK ALTYAZI ZAMANLAMASI
+    if not word_boundaries and script_text:
+        words = script_text.split()
+        if words:
+            dur_per_word = duration / len(words)
+            word_boundaries = [
+                {"text": w, "start": i * dur_per_word, "duration": dur_per_word}
+                for i, w in enumerate(words)
+            ]
 
     if bg_upload_path:
         ext = os.path.splitext(bg_upload_path)[1].lower()
@@ -511,7 +521,7 @@ def run_pipeline():
             progress.progress(40)
             audio_path = os.path.join(tmpdir, "voice.mp3")
             word_boundaries = synthesize_speech(script_text, lang_info["voice"], audio_path)
-            log(f"✅ Ses hazır ({len(word_boundaries)} kelime zamanlaması).")
+            log(f"✅ Ses hazır ({len(word_boundaries)} kelime zamanlaması yakalandı).")
             render_logs()
             progress.progress(55)
 
