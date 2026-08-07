@@ -3,3 +3,4 @@ groq
 edge-tts
 moviepy==1.0.3
 numpy
+Pillow==9.5.0
