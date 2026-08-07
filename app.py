@@ -1,7 +1,7 @@
 """
-YPP AUTO-STUDIO v2.0
+YPP AUTO-STUDIO v3.0 Pro
 High-CPM Video Generator - Streamlit Web App
-ImageMagick-Free & Robust Subtitle Fallback Edition
+ElevenLabs TTS, Word-by-Word Pop-up Subtitles, Background Music & Multi-API Integration
 """
 
 import os
@@ -11,6 +11,7 @@ import uuid
 import asyncio
 import tempfile
 import traceback
+import requests
 
 import PIL.Image
 if not hasattr(PIL.Image, 'ANTIALIAS'):
@@ -25,7 +26,7 @@ from groq import Groq
 # PAGE CONFIG
 # ------------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="YPP Auto-Studio v2.0",
+    page_title="YPP Auto-Studio v3.0 Pro",
     page_icon="🎬",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -53,7 +54,7 @@ st.markdown(
         text-align: center;
     }
     .ypp-header h1 {
-        font-size: 1.35rem;
+        font-size: 1.4rem;
         margin: 0;
         color: #FFD400;
         letter-spacing: 0.5px;
@@ -66,7 +67,7 @@ st.markdown(
     .ypp-section {
         background: #161B22;
         border-radius: 12px;
-        padding: 14px 16px 6px 16px;
+        padding: 14px 16px 14px 16px;
         margin-bottom: 16px;
         border: 1px solid #262b34;
     }
@@ -111,25 +112,25 @@ LANGUAGES = {
 
 SUBTITLE_TEMPLATES = {
     "Yellow Pop-Up (Shorts Trend)": {
-        "color": "black",
+        "color": "#111111",
         "bg_color": "#FFD400",
-        "stroke_color": "black",
-        "stroke_width": 2,
-        "font_size_ratio": 0.055,
+        "stroke_color": "#000000",
+        "stroke_width": 0,
+        "font_size_ratio": 0.042,
     },
     "White Box": {
-        "color": "black",
-        "bg_color": "white",
+        "color": "#000000",
+        "bg_color": "#FFFFFF",
         "stroke_color": None,
         "stroke_width": 0,
-        "font_size_ratio": 0.050,
+        "font_size_ratio": 0.038,
     },
-    "Neon Green": {
+    "Neon Green Stroke": {
         "color": "#39FF14",
         "bg_color": None,
-        "stroke_color": "black",
+        "stroke_color": "#000000",
         "stroke_width": 3,
-        "font_size_ratio": 0.055,
+        "font_size_ratio": 0.045,
     },
 }
 
@@ -140,12 +141,11 @@ EMOJI_MAP = {
     "love": "❤️", "aşk": "❤️", "amor": "❤️", "liebe": "❤️",
     "fire": "🔥", "ateş": "🔥", "fuego": "🔥", "feuer": "🔥",
     "win": "🏆", "kazan": "🏆", "gana": "🏆", "gewinn": "🏆",
-    "shock": "😱", "şok": "😱", "increíble": "😱",
-    "secret": "🤫", "sır": "🤫", "secreto": "🤫",
-    "time": "⏰", "zaman": "⏰", "tiempo": "⏰",
+    "shock": "😱", "şok": "😱",
+    "secret": "🤫", "sır": "🤫",
+    "time": "⏰", "zaman": "⏰",
     "star": "⭐", "yıldız": "⭐",
     "warning": "⚠️", "dikkat": "⚠️",
-    "success": "✅", "başarı": "✅",
 }
 
 OUTPUT_DIR = os.path.join(os.getcwd(), "output")
@@ -173,30 +173,48 @@ def log(msg: str):
 st.markdown(
     """
     <div class="ypp-header">
-        <h1>🎬 YPP AUTO-STUDIO v2.0</h1>
-        <p>High-CPM Video Generator</p>
+        <h1>🎬 YPP AUTO-STUDIO v3.0 Pro</h1>
+        <p>High-CPM Video Generator (ElevenLabs + Pop-Up Subtitles)</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-with st.expander("🔑 API Anahtarı (Groq) — zorunlu", expanded=not bool(st.secrets.get("GROQ_API_KEY", ""))):
-    default_key = st.secrets.get("GROQ_API_KEY", "") if hasattr(st, "secrets") else ""
+with st.expander("🔑 API Anahtarları (Kullanıcı Ayarları)", expanded=True):
     groq_api_key = st.text_input(
-        "Groq API Key",
-        value=default_key,
+        "Groq API Key (Senaryo Üretimi - Zorunlu)",
+        value=st.secrets.get("GROQ_API_KEY", ""),
         type="password",
         help="https://console.groq.com/keys adresinden ücretsiz alabilirsiniz.",
     )
+    elevenlabs_api_key = st.text_input(
+        "ElevenLabs API Key (Profesyonel İnsansı Ses - Opsiyonel)",
+        value=st.secrets.get("ELEVENLABS_API_KEY", ""),
+        type="password",
+        help="Boş bırakılırsa ücretsiz Edge-TTS sesi kullanılır.",
+    )
+    elevenlabs_voice_id = st.text_input(
+        "ElevenLabs Voice ID (Varsayılan: 21m00Tcm4TlvDq8ikWAM - Rachel)",
+        value="21m00Tcm4TlvDq8ikWAM",
+    )
 
-st.markdown('<div class="ypp-section"><h3>📝 1. İçerik & Hedef Bölge (CPM) Ayarları</h3>', unsafe_allow_html=True)
+st.markdown('<div class="ypp-section"><h3>📝 1. İçerik & Format Ayarları</h3>', unsafe_allow_html=True)
 topic = st.text_input("Video Konusu / Başlık", placeholder="Örn: 5 Şaşırtıcı Uzay Gerçeği")
 target_language = st.selectbox("Hedef Dil / Bölge", list(LANGUAGES.keys()), index=0)
 video_format = st.radio("Video Formatı", ["Dikey Shorts (9:16)", "Yatay Long-Form (16:9)"], horizontal=True)
-bg_file = st.file_uploader("Arkaplan Görsel/Video (opsiyonel)", type=["mp4", "mov", "jpg", "jpeg", "png"])
+bg_file = st.file_uploader("Arkaplan Görsel/Video (Opsiyonel)", type=["mp4", "mov", "jpg", "jpeg", "png"])
 st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown('<div class="ypp-section"><h3>🎨 2. Altyazı, Efekt & Stil</h3>', unsafe_allow_html=True)
+st.markdown('<div class="ypp-section"><h3>🎵 2. Müzik & Ses Seviyesi Ayarları</h3>', unsafe_allow_html=True)
+music_file = st.file_uploader("Cihazdan Fon Müziği Yükle (MP3/WAV)", type=["mp3", "wav", "m4a"])
+col_m1, col_m2 = st.columns(2)
+with col_m1:
+    voice_volume = st.slider("Seslendirme Seviyesi (%)", min_value=0, max_value=200, value=100, step=10)
+with col_m2:
+    music_volume = st.slider("Fon Müziği Seviyesi (%)", min_value=0, max_value=100, value=20, step=5)
+st.markdown("</div>", unsafe_allow_html=True)
+
+st.markdown('<div class="ypp-section"><h3>🎨 3. Altyazı, Efekt & Stil</h3>', unsafe_allow_html=True)
 subtitle_template = st.selectbox("Altyazı Şablonu", list(SUBTITLE_TEMPLATES.keys()))
 subtitle_position_tr = st.radio("Altyazı Konumu", list(SUB_POSITION_MAP.keys()), index=1, horizontal=True)
 
@@ -208,9 +226,6 @@ color_filter_type = None
 if fx_color:
     color_filter_type = st.selectbox("Filtre Tipi", ["Cold", "Warm", "Vintage"], label_visibility="collapsed")
 fx_cta = st.checkbox('Dynamic Call to Action ("Abone Ol" Butonu)', value=True)
-st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown('<div class="ypp-section"><h3>🛡️ 3. YPP & Telif Koruma Kontrolleri</h3>', unsafe_allow_html=True)
 fx_anticopy = st.checkbox("Reused Content Anti-Copyright Filter (%100 Özgünleştirme)", value=True)
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -224,12 +239,12 @@ def render_logs():
 
 
 # ------------------------------------------------------------------------------------
-# BACKEND: SCRIPT & TTS
+# SCRIPT & TTS ENGINES
 # ------------------------------------------------------------------------------------
 def generate_script(api_key: str, topic: str, lang_name: str, fmt: str) -> str:
     client = Groq(api_key=api_key)
     is_short = "Dikey" in fmt
-    length_hint = "45-60 saniyede seslendirilecek viral kısa Shorts" if is_short else "3-5 dakikalık detaylı video"
+    length_hint = "45-60 saniyede seslendirilecek viral kısa Shorts" if is_short else "2-3 dakikalık video"
 
     prompt = f"""
 Sen viral YouTube senaristisisin. Konu: "{topic}"
@@ -244,7 +259,28 @@ Kural: Sadece seslendirilecek metni yaz. Sahne yönergesi, markdown veya başlı
     return re.sub(r"[*_#`]", "", script_text)
 
 
-async def _synthesize_async(text: str, voice: str, out_path: str):
+def synthesize_elevenlabs(text: str, api_key: str, voice_id: str, out_path: str):
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    headers = {
+        "Accept": "audio/mpeg",
+        "Content-Type": "application/json",
+        "xi-api-key": api_key,
+    }
+    data = {
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+    }
+    res = requests.post(url, json=data, headers=headers)
+    if res.status_code == 200:
+        with open(out_path, "wb") as f:
+            f.write(res.content)
+        return True
+    else:
+        raise Exception(f"ElevenLabs Error {res.status_code}: {res.text}")
+
+
+async def _synthesize_edge_async(text: str, voice: str, out_path: str):
     import edge_tts
     communicate = edge_tts.Communicate(text, voice)
     word_boundaries = []
@@ -263,14 +299,10 @@ async def _synthesize_async(text: str, voice: str, out_path: str):
     return word_boundaries
 
 
-def synthesize_speech(text: str, voice: str, out_path: str):
-    return asyncio.run(_synthesize_async(text, voice, out_path))
-
-
 # ------------------------------------------------------------------------------------
 # PIL TEXT RENDERER
 # ------------------------------------------------------------------------------------
-def _create_pil_text_clip(text, font_size, color="white", bg_color=None, stroke_color=None, stroke_width=0):
+def _create_pil_text_clip(text, font_size, color="black", bg_color="#FFD400", stroke_color=None, stroke_width=0):
     from moviepy.editor import ImageClip
 
     font = None
@@ -289,7 +321,7 @@ def _create_pil_text_clip(text, font_size, color="white", bg_color=None, stroke_
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
 
-    pad_x, pad_y = 24, 14
+    pad_x, pad_y = 20, 12
     img_w = text_w + pad_x * 2
     img_h = text_h + pad_y * 2
 
@@ -297,7 +329,7 @@ def _create_pil_text_clip(text, font_size, color="white", bg_color=None, stroke_
     draw = ImageDraw.Draw(img)
 
     if bg_color:
-        draw.rounded_rectangle([0, 0, img_w, img_h], radius=12, fill=bg_color)
+        draw.rounded_rectangle([0, 0, img_w, img_h], radius=10, fill=bg_color)
 
     x, y = pad_x - bbox[0], pad_y - bbox[1]
 
@@ -357,26 +389,32 @@ def _apply_color_filter(clip, filter_type: str):
     return clip.fl_image(fx) if fx else clip
 
 
-def _build_word_subtitle_clips(word_boundaries, template: dict, position: str, size, use_emoji: bool):
+# ------------------------------------------------------------------------------------
+# POP-UP SUBTITLE GENERATOR (Shorts Trend)
+# ------------------------------------------------------------------------------------
+def _build_popup_subtitle_clips(word_boundaries, template: dict, position: str, size, use_emoji: bool):
     w, h = size
-    font_size = max(int(h * template["font_size_ratio"]), 28)
+    font_size = max(int(h * template["font_size_ratio"]), 32)
     clips = []
-    pos_y = {"top": h * 0.15, "center": h * 0.45, "bottom": h * 0.75}[position]
+    pos_y = {"top": h * 0.18, "center": h * 0.48, "bottom": h * 0.72}[position]
 
-    phrase_size = 3
-    for i in range(0, len(word_boundaries), phrase_size):
-        group = word_boundaries[i:i + phrase_size]
+    # HER EKRANDA MAX 1 VEYA 2 KELİME (Büyük ve Pop-Up Etkisi)
+    chunk_size = 2
+    for i in range(0, len(word_boundaries), chunk_size):
+        group = word_boundaries[i:i + chunk_size]
         if not group:
             continue
-        phrase = " ".join(g["text"] for g in group).strip()
+
+        phrase = " ".join(g["text"] for g in group).strip().upper()
         if use_emoji:
             for key, emoji in EMOJI_MAP.items():
                 if key in phrase.lower():
                     phrase = f"{phrase} {emoji}"
                     break
+
         start = group[0]["start"]
         end = group[-1]["start"] + group[-1]["duration"]
-        dur = max(end - start, 0.2)
+        dur = max(end - start, 0.35)
 
         txt_clip = _create_pil_text_clip(
             text=phrase,
@@ -396,7 +434,7 @@ def _build_word_subtitle_clips(word_boundaries, template: dict, position: str, s
 def _build_cta_clip(cta_text: str, size, total_duration: float, position="bottom"):
     w, h = size
     y = h * 0.88 if position == "bottom" else h * 0.06
-    font_size = max(int(h * 0.038), 22)
+    font_size = max(int(h * 0.035), 22)
 
     cta = _create_pil_text_clip(
         text=cta_text,
@@ -407,28 +445,32 @@ def _build_cta_clip(cta_text: str, size, total_duration: float, position="bottom
         stroke_width=0,
     )
 
-    interval = 12.0
+    interval = 10.0
     fragments = []
     t = 2.0
     while t < total_duration:
-        frag = cta.copy().set_start(t).set_duration(min(3.0, max(total_duration - t, 0))).set_position(("center", y))
+        frag = cta.copy().set_start(t).set_duration(min(2.5, max(total_duration - t, 0))).set_position(("center", y))
         fragments.append(frag)
         t += interval
     return fragments
 
 
+# ------------------------------------------------------------------------------------
+# VIDEO COMPOSE & MIXING
+# ------------------------------------------------------------------------------------
 def compose_video(
-    script_text, audio_path, word_boundaries, bg_upload_path, video_format,
+    script_text, voice_audio_path, music_audio_path, voice_vol, music_vol,
+    word_boundaries, bg_upload_path, video_format,
     fx_flip, fx_color, color_filter_type, subtitle_template_name,
     subtitle_position, fx_emoji, fx_cta, cta_text, fx_anticopy, out_path,
 ):
-    from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, AudioFileClip, vfx
+    from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip, AudioFileClip, CompositeAudioClip, vfx
 
-    audio_clip = AudioFileClip(audio_path)
-    duration = audio_clip.duration
+    voice_clip = AudioFileClip(voice_audio_path).volumex(voice_vol / 100.0)
+    duration = voice_clip.duration
     size = (1080, 1920) if "Dikey" in video_format else (1920, 1080)
 
-    # OTOMATİK YEDEK ALTYAZI ZAMANLAMASI
+    # Otomatik Kelime Zamanlama Bölücü (Pop-Up Formatı İçin)
     if not word_boundaries and script_text:
         words = script_text.split()
         if words:
@@ -438,6 +480,19 @@ def compose_video(
                 for i, w in enumerate(words)
             ]
 
+    # Fon Müziği Karıştırma (Audio Mixing)
+    audio_tracks = [voice_clip]
+    if music_audio_path and os.path.exists(music_audio_path):
+        music_clip = AudioFileClip(music_audio_path).volumex(music_vol / 100.0)
+        if music_clip.duration < duration:
+            music_clip = music_clip.fx(vfx.loop, duration=duration)
+        else:
+            music_clip = music_clip.subclip(0, duration)
+        audio_tracks.append(music_clip)
+
+    final_audio = CompositeAudioClip(audio_tracks)
+
+    # Arkaplan Yönetimi
     if bg_upload_path:
         ext = os.path.splitext(bg_upload_path)[1].lower()
         if ext in (".mp4", ".mov"):
@@ -467,12 +522,12 @@ def compose_video(
 
     template = SUBTITLE_TEMPLATES[subtitle_template_name]
     if word_boundaries:
-        layers.extend(_build_word_subtitle_clips(word_boundaries, template, subtitle_position, size, fx_emoji))
+        layers.extend(_build_popup_subtitle_clips(word_boundaries, template, subtitle_position, size, fx_emoji))
 
     if fx_cta:
         layers.extend(_build_cta_clip(cta_text, size, duration))
 
-    final = CompositeVideoClip(layers, size=size).set_duration(duration).set_audio(audio_clip)
+    final = CompositeVideoClip(layers, size=size).set_duration(duration).set_audio(final_audio)
 
     final.write_videofile(
         out_path,
@@ -484,7 +539,7 @@ def compose_video(
         logger=None,
     )
     final.close()
-    audio_clip.close()
+    voice_clip.close()
 
 
 # ------------------------------------------------------------------------------------
@@ -514,33 +569,57 @@ def run_pipeline():
             script_text = generate_script(groq_api_key, topic, target_language, video_format)
             log(f"✅ Senaryo hazır ({len(script_text.split())} kelime).")
             render_logs()
-            progress.progress(30)
+            progress.progress(25)
 
-            log(f"▶ Adım 2/4: Seslendirme üretiliyor ({lang_info['voice']})")
-            render_logs()
-            progress.progress(40)
-            audio_path = os.path.join(tmpdir, "voice.mp3")
-            word_boundaries = synthesize_speech(script_text, lang_info["voice"], audio_path)
-            log(f"✅ Ses hazır ({len(word_boundaries)} kelime zamanlaması yakalandı).")
+            voice_path = os.path.join(tmpdir, "voice.mp3")
+            word_boundaries = []
+
+            if elevenlabs_api_key.strip():
+                log("▶ Adım 2/4: İnsansı Ses Üretiliyor (ElevenLabs)")
+                render_logs()
+                progress.progress(40)
+                try:
+                    synthesize_elevenlabs(script_text, elevenlabs_api_key.strip(), elevenlabs_voice_id.strip(), voice_path)
+                    log("✅ ElevenLabs profesyonel seslendirmesi başarıyla oluşturuldu.")
+                except Exception as e:
+                    log(f"⚠️ ElevenLabs hatası: {e}. Edge-TTS'e geçiliyor...")
+                    word_boundaries = asyncio.run(_synthesize_edge_async(script_text, lang_info["voice"], voice_path))
+            else:
+                log(f"▶ Adım 2/4: Seslendirme üretiliyor ({lang_info['voice']})")
+                render_logs()
+                progress.progress(40)
+                word_boundaries = asyncio.run(_synthesize_edge_async(script_text, lang_info["voice"], voice_path))
+                log(f"✅ Ses hazır.")
+
             render_logs()
             progress.progress(55)
 
+            # Arkaplan & Müzik dosyalarını temp klasöre kaydetme
             bg_path = None
             if bg_file is not None:
                 bg_path = os.path.join(tmpdir, f"bg{os.path.splitext(bg_file.name)[1]}")
                 with open(bg_path, "wb") as f:
                     f.write(bg_file.getbuffer())
 
-            log("▶ Adım 3/4: Video render ediliyor (PIL Text + MoviePy)")
+            music_path = None
+            if music_file is not None:
+                music_path = os.path.join(tmpdir, f"music{os.path.splitext(music_file.name)[1]}")
+                with open(music_path, "wb") as f:
+                    f.write(music_file.getbuffer())
+
+            log("▶ Adım 3/4: Video render ediliyor (Pop-Up Altyazılar & Ses Karıştırma)")
             render_logs()
-            progress.progress(65)
+            progress.progress(70)
 
             out_filename = f"ypp_{uuid.uuid4().hex[:10]}.mp4"
             out_path = os.path.join(OUTPUT_DIR, out_filename)
 
             compose_video(
                 script_text=script_text,
-                audio_path=audio_path,
+                voice_audio_path=voice_path,
+                music_audio_path=music_path,
+                voice_vol=voice_volume,
+                music_vol=music_volume,
                 word_boundaries=word_boundaries,
                 bg_upload_path=bg_path,
                 video_format=video_format,
